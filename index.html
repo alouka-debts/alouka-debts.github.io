@@ -74,8 +74,12 @@ import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,co
 const fb=initializeApp({apiKey:"AIzaSyDf_VnDfJNWgKSLJtFsIeeOVosSXPcivVk",authDomain:"alouka-debts.firebaseapp.com",projectId:"alouka-debts",storageBucket:"alouka-debts.firebasestorage.app",messagingSenderId:"278486865299",appId:"1:278486865299:web:6e496af2641f4c3d474466"});
 const auth=getAuth(fb),db=initializeFirestore(fb,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})});
 const KEY='alouka_v1';
-let S={customers:[]},tab='home',view=null,cvTab='open',q='',user=null,guest=false,synced={},unsub=null,first=true;
+let S={customers:[]},tab='home',view=null,cvTab='open',q='',user=null,guest=false,synced={},unsub=null,unsubCfg=null,first=true;
 try{const r=localStorage.getItem(KEY);if(r)S=JSON.parse(r)}catch(e){}
+const CK='alouka_cfg';
+let cfg={shop:'',sig:'العلي لخدمات الإنترنت',phone:''};
+try{const r=localStorage.getItem(CK);if(r)cfg={...cfg,...JSON.parse(r)}}catch(e){}
+const saveCfg=()=>{try{localStorage.setItem(CK,JSON.stringify(cfg))}catch(e){}if(user)setDoc(doc(db,'users',user.uid,'settings','main'),cfg).catch(e=>console.error(e))};
 const local=JSON.parse(JSON.stringify(S));
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){alert('تعذّر الحفظ على هذا الجهاز')}
   if(!user)return;
@@ -123,6 +127,7 @@ function wa(c,full){
   let m='السلام عليكم '+c.name+'،\n';
   if(full){m+='كشف حسابك:\n'+c.tx.map(t=>new Date(t.ts).toLocaleDateString('en-GB')+' - '+(t.type==='debt'?'دين ':'تسديد ')+fmt(t.amt)+cu(t.cur)+(t.note?' ('+t.note+')':'')).join('\n')+'\nالمتبقي: '+balTxt(b)}
   else m+='تذكير ودّي: المبلغ المطلوب منك '+balTxt(b)+'. شكراً لتعاملك.';
+  m+='\n\n'+cfg.sig+(cfg.phone?'\n'+cfg.phone:'');
   window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
 const custRow=(c,btn)=>{const b=bal(c),o=opens(c).filter(isLate),amt=balTxt(b);return '<div class="row" data-id="'+c.id+'" tabindex="0"><div><div class="nm">'+esc(c.name)+'</div><div class="ph">'+(o.length?'<span class="late">متأخر '+o.length+'</span>':esc(c.phone||''))+'</div></div><div style="display:flex;gap:8px;align-items:center"><div class="amt '+(b.IQD>0||b.USD>0?'owe':'ok')+'">'+amt+'</div>'+(btn&&(b.IQD>0||b.USD>0)?'<button class="wa" data-wa="'+c.id+'" aria-label="واتساب">واتساب</button>':'')+'</div></div>'};
@@ -146,7 +151,7 @@ function dues(){
   const all=S.customers.flatMap(opens).sort((a,b)=>(a.due?dueMs(a):9e15)-(b.due?dueMs(b):9e15));
   return '<h2>الديون المفتوحة</h2>'+(all.length?'<div class="list">'+all.map(o=>'<div class="row" data-id="'+o.cid+'" tabindex="0"><div><div class="nm">'+esc(o.cn)+'</div>'+(dueTxt(o)||'<span class="ph">بدون تاريخ</span>')+'</div><div class="amt owe">'+fmt(o.rem)+cu(o.cur)+'</div></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة.</div>');
 }
-function more(){return (user?'<h2>الحساب</h2><div class="box"><div class="nm">'+esc(user.email||'')+'</div><div class="ph">بياناتك محفوظة بالسحابة تحت هذا الحساب</div><button class="ghost" id="lo" style="margin-top:10px">تسجيل الخروج</button></div>':'<h2>الحساب</h2><div class="box"><div class="ph">أنت تعمل بدون حساب. البيانات على هذا الجهاز فقط.</div><button class="gold" id="li" style="margin-top:10px;width:100%">الدخول بحساب جوجل</button></div>')+'<h2>النسخ الاحتياطي</h2><div class="acts"><button class="ghost" id="ex">نسخة احتياطية</button><button class="ghost" id="im">استرجاع نسخة</button></div><div class="box ph">'+(user?'بياناتك على السحابة. هذي نسخة إضافية على جوالك.':'البيانات محفوظة على هذا الجهاز فقط. خذ نسخة احتياطية من وقت لوقت.')+'</div>'}
+function more(){return (user?'<h2>الحساب</h2><div class="box"><div class="nm">'+esc(user.email||'')+'</div><div class="ph">بياناتك محفوظة بالسحابة تحت هذا الحساب</div><button class="ghost" id="lo" style="margin-top:10px">تسجيل الخروج</button></div>':'<h2>الحساب</h2><div class="box"><div class="ph">أنت تعمل بدون حساب. البيانات على هذا الجهاز فقط.</div><button class="gold" id="li" style="margin-top:10px;width:100%">الدخول بحساب جوجل</button></div>')+'<h2>بيانات المحل</h2><div class="box"><div class="nm">'+esc(cfg.shop||'أحمد علوكه')+'</div><div class="ph">توقيع الرسائل: '+esc(cfg.sig)+(cfg.phone?' · '+esc(cfg.phone):'')+'</div><button class="ghost" id="cs" style="margin-top:10px">تعديل بيانات المحل</button></div><h2>النسخ الاحتياطي</h2><div class="acts"><button class="ghost" id="ex">نسخة احتياطية</button><button class="ghost" id="im">استرجاع نسخة</button></div><div class="box ph">'+(user?'بياناتك على السحابة. هذي نسخة إضافية على جوالك.':'البيانات محفوظة على هذا الجهاز فقط. خذ نسخة احتياطية من وقت لوقت.')+'</div>'}
 function cust(c){
   const b=bal(c),op=opens(c);
   return '<button class="ghost" id="bk" style="margin-bottom:10px">رجوع</button><div class="box"><div class="nm">'+esc(c.name)+'</div><div class="ph">'+esc(c.phone||'بدون رقم')+'</div><strong class="'+(b.IQD>0||b.USD>0?'owe':'ok')+'" style="font-size:24px">'+balTxt(b)+'</strong></div>'
@@ -158,6 +163,7 @@ function cust(c){
 }
 const IC={home:'M3 11l9-8 9 8v10h-6v-6H9v6H3z',users:'M16 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6',dues:'M4 5h16v16H4zM4 10h16M9 3v4M15 3v4',more:'M5 12h.01M12 12h.01M19 12h.01'};
 function render(){
+  const hb=document.querySelector('header b');if(hb)hb.textContent=cfg.shop||'أحمد علوكه';
   const a=$('#app'),c=view&&S.customers.find(x=>x.id===view);if(view&&!c)view=null;
   a.innerHTML=c?cust(c):tab==='home'?home():tab==='cust'?customers():tab==='dues'?dues():more();
   const N=[['home','الرئيسية'],['cust','الزبائن'],0,['dues','الاستحقاق'],['more','المزيد']];
@@ -170,6 +176,7 @@ function render(){
   if($('#nc'))$('#nc').onclick=addCustomer;
   if($('#lo'))$('#lo').onclick=()=>{if(confirm('تسجل الخروج؟ بياناتك محفوظة بالسحابة.')){try{localStorage.removeItem(KEY)}catch(e){}S={customers:[]};local.customers=[];signOut(auth)}};
   if($('#li'))$('#li').onclick=()=>{guest=false;showLogin()};
+  if($('#cs'))$('#cs').onclick=()=>sheet('بيانات المحل',[{k:'s',l:'اسم المحل (يظهر بأعلى التطبيق)',v:cfg.shop||'أحمد علوكه'},{k:'g',l:'توقيع رسائل واتساب',v:cfg.sig},{k:'p',l:'رقم هاتفك للتواصل (اختياري)',t:'tel',m:'tel',v:cfg.phone}],v=>{cfg={shop:v.s,sig:v.g||cfg.sig,phone:v.p};saveCfg();render()});
   if($('#ex'))$('#ex').onclick=()=>{const u=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:'application/json'}));const l=document.createElement('a');l.href=u;l.download='alouka-backup-'+new Date().toISOString().slice(0,10)+'.json';l.click();setTimeout(()=>URL.revokeObjectURL(u),2000)};
   if($('#im'))$('#im').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=()=>{const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.customers))throw 0;if(confirm('هذا يستبدل البيانات الحالية. تكمل؟')){S=d;save();render()}}catch(e){alert('الملف غير صالح')}};r.readAsText(i.files[0])};i.click()};
   if(c){
@@ -189,8 +196,10 @@ function showLogin(){
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 onAuthStateChanged(auth,u=>{
   if(unsub){unsub();unsub=null}
+  if(unsubCfg){unsubCfg();unsubCfg=null}
   user=u;synced={};first=true;
   if(!u){local.customers=[];if(guest)render();else showLogin();return}
+  unsubCfg=onSnapshot(doc(db,'users',u.uid,'settings','main'),s=>{if(s.exists()){cfg={...cfg,...s.data()};try{localStorage.setItem(CK,JSON.stringify(cfg))}catch(e){}render()}else if(cfg.shop||cfg.phone||cfg.sig!=='العلي لخدمات الإنترنت')saveCfg()},err=>console.error(err));
   unsub=onSnapshot(collection(db,'users',u.uid,'customers'),snap=>{
     const arr=snap.docs.map(d=>d.data());
     if(first){first=false;
