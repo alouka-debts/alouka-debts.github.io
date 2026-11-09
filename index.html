@@ -127,7 +127,7 @@ function wa(c,full){
   let m='السلام عليكم '+c.name+'،\n';
   if(full){m+='كشف حسابك:\n'+c.tx.map(t=>new Date(t.ts).toLocaleDateString('en-GB')+' - '+(t.type==='debt'?'دين ':'تسديد ')+fmt(t.amt)+cu(t.cur)+(t.note?' ('+t.note+')':'')).join('\n')+'\nالمتبقي: '+balTxt(b)}
   else m+='تذكير ودّي: المبلغ المطلوب منك '+balTxt(b)+'. شكراً لتعاملك.';
-  m+='\n\n'+cfg.sig+(cfg.phone?'\n'+cfg.phone:'');
+  m+='\n\n✦ ━━━━━━━━━━ ✦\n🌐 *'+cfg.sig+'* 🌐\n✦ ━━━━━━━━━━ ✦'+(cfg.phone?'\n📞 '+cfg.phone:'');
   window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
 const custRow=(c,btn)=>{const b=bal(c),o=opens(c).filter(isLate),amt=balTxt(b);return '<div class="row" data-id="'+c.id+'" tabindex="0"><div><div class="nm">'+esc(c.name)+'</div><div class="ph">'+(o.length?'<span class="late">متأخر '+o.length+'</span>':esc(c.phone||''))+'</div></div><div style="display:flex;gap:8px;align-items:center"><div class="amt '+(b.IQD>0||b.USD>0?'owe':'ok')+'">'+amt+'</div>'+(btn&&(b.IQD>0||b.USD>0)?'<button class="wa" data-wa="'+c.id+'" aria-label="واتساب">واتساب</button>':'')+'</div></div>'};
