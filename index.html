@@ -100,7 +100,7 @@ const isLate=o=>o.due&&dueMs(o)<T;
 const dueTxt=o=>{if(!o.due)return '';const d=Math.round((dueMs(o)-T)/D);return d<0?'<span class="late">متأخر '+(-d)+' يوم</span>':d===0?'<span class="soon">يستحق اليوم</span>':d<=7?'<span class="soon">يستحق بعد '+d+' يوم</span>':'<span class="ph">يستحق '+o.due+'</span>'};
 function sheet(title,fields,ok,label){
   $('#sheetBody').innerHTML='<b>'+esc(title)+'</b>'+fields.map(f=>'<div><label>'+f.l+'</label>'+(f.o?'<select id="f_'+f.k+'">'+f.o.map(o=>'<option value="'+esc(o[0])+'">'+esc(o[1])+'</option>').join('')+'</select>':'<input id="f_'+f.k+'" type="'+(f.t||'text')+'" inputmode="'+(f.m||'text')+'" value="'+esc(f.v||'')+'">')+'</div>').join('')+'<button class="gold" id="okb">'+(label||'حفظ')+'</button><button class="ghost" id="cn">إلغاء</button>';
-  $('#sheet').classList.add('on');$('#cn').onclick=close;
+  $('#sheet').classList.add('on');fields.forEach(f=>{if(f.o&&f.v!=null)$('#f_'+f.k).value=f.v});$('#cn').onclick=close;
   $('#okb').onclick=()=>{const v={};fields.forEach(f=>v[f.k]=$('#f_'+f.k).value.trim());if(ok(v)!==false)close()};
   const f=$('#sheetBody input,#sheetBody select');if(f)f.focus();
 }
@@ -118,7 +118,15 @@ function addTx(type,id){
     if(!(a>0)){alert('اكتب مبلغاً صحيحاً أكبر من صفر');return false}
     const l=c.tx[c.tx.length-1];
     if(l&&l.type===type&&l.amt===a&&l.cur===v.u&&Date.now()-l.ts<120000&&!confirm('نفس المبلغ سُجّل قبل قليل. تسجله مرة ثانية؟'))return false;
-    c.tx.push({id:uid(),type,cur:v.u,amt:a,note:v.d,due:v.due||'',ts:Date.now()});save();render()},type==='debt'?'سجّل الدين':'سجّل التسديد');
+    c.tx.push({id:uid(),type,cur:v.u,amt:a,note:v.d,due:v.due||'',ts:Date.now()});save();render();if(cfg.autoWa!=='0')waNote(c,type,a,v.u)},type==='debt'?'سجّل الدين':'سجّل التسديد');
+}
+const sigBlock=()=>'\n\n✦ ━━━━━━━━━━ ✦\n🌐 *'+cfg.sig+'* 🌐\n✦ ━━━━━━━━━━ ✦'+(cfg.phone?'\n📞 '+cfg.phone:'');
+function waNote(c,type,a,cur){
+  let p=(c.phone||'').replace(/\D/g,'');if(!p)return;
+  if(p.startsWith('0'))p='964'+p.slice(1);
+  const r=balTxt(bal(c));
+  const m='السلام عليكم '+c.name+'،\n'+(type==='debt'?'تم تسجيل دين بمبلغ '+fmt(a)+cu(cur)+'.':'تم استلام مبلغ '+fmt(a)+cu(cur)+'، شكراً لك.')+'\n'+(r==='مسدَّد'?'تم سداد كامل المبلغ، الله يعطيك العافية.':'المتبقي عليك: '+r)+sigBlock();
+  window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
 function wa(c,full){
   const b=bal(c);if(!full&&b.IQD<=0&&b.USD<=0){alert('الزبون ما عليه مبلغ');return}
@@ -127,7 +135,7 @@ function wa(c,full){
   let m='السلام عليكم '+c.name+'،\n';
   if(full){m+='كشف حسابك:\n'+c.tx.map(t=>new Date(t.ts).toLocaleDateString('en-GB')+' - '+(t.type==='debt'?'دين ':'تسديد ')+fmt(t.amt)+cu(t.cur)+(t.note?' ('+t.note+')':'')).join('\n')+'\nالمتبقي: '+balTxt(b)}
   else m+='تذكير ودّي: المبلغ المطلوب منك '+balTxt(b)+'. شكراً لتعاملك.';
-  m+='\n\n✦ ━━━━━━━━━━ ✦\n🌐 *'+cfg.sig+'* 🌐\n✦ ━━━━━━━━━━ ✦'+(cfg.phone?'\n📞 '+cfg.phone:'');
+  m+=sigBlock();
   window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
 const custRow=(c,btn)=>{const b=bal(c),o=opens(c).filter(isLate),amt=balTxt(b);return '<div class="row" data-id="'+c.id+'" tabindex="0"><div><div class="nm">'+esc(c.name)+'</div><div class="ph">'+(o.length?'<span class="late">متأخر '+o.length+'</span>':esc(c.phone||''))+'</div></div><div style="display:flex;gap:8px;align-items:center"><div class="amt '+(b.IQD>0||b.USD>0?'owe':'ok')+'">'+amt+'</div>'+(btn&&(b.IQD>0||b.USD>0)?'<button class="wa" data-wa="'+c.id+'" aria-label="واتساب">واتساب</button>':'')+'</div></div>'};
@@ -176,7 +184,7 @@ function render(){
   if($('#nc'))$('#nc').onclick=addCustomer;
   if($('#lo'))$('#lo').onclick=()=>{if(confirm('تسجل الخروج؟ بياناتك محفوظة بالسحابة.')){try{localStorage.removeItem(KEY)}catch(e){}S={customers:[]};local.customers=[];signOut(auth)}};
   if($('#li'))$('#li').onclick=()=>{guest=false;showLogin()};
-  if($('#cs'))$('#cs').onclick=()=>sheet('بيانات المحل',[{k:'s',l:'اسم المحل (يظهر بأعلى التطبيق)',v:cfg.shop||'أحمد علوكه'},{k:'g',l:'توقيع رسائل واتساب',v:cfg.sig},{k:'p',l:'رقم هاتفك للتواصل (اختياري)',t:'tel',m:'tel',v:cfg.phone}],v=>{cfg={shop:v.s,sig:v.g||cfg.sig,phone:v.p};saveCfg();render()});
+  if($('#cs'))$('#cs').onclick=()=>sheet('بيانات المحل',[{k:'s',l:'اسم المحل (يظهر بأعلى التطبيق)',v:cfg.shop||'أحمد علوكه'},{k:'g',l:'توقيع رسائل واتساب',v:cfg.sig},{k:'p',l:'رقم هاتفك للتواصل (اختياري)',t:'tel',m:'tel',v:cfg.phone},{k:'w',l:'فتح واتساب بعد كل دين أو تسديد',o:[['1','نعم'],['0','لا']],v:cfg.autoWa==='0'?'0':'1'}],v=>{cfg={shop:v.s,sig:v.g||cfg.sig,phone:v.p,autoWa:v.w};saveCfg();render()});
   if($('#ex'))$('#ex').onclick=()=>{const u=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:'application/json'}));const l=document.createElement('a');l.href=u;l.download='alouka-backup-'+new Date().toISOString().slice(0,10)+'.json';l.click();setTimeout(()=>URL.revokeObjectURL(u),2000)};
   if($('#im'))$('#im').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=()=>{const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.customers))throw 0;if(confirm('هذا يستبدل البيانات الحالية. تكمل؟')){S=d;save();render()}}catch(e){alert('الملف غير صالح')}};r.readAsText(i.files[0])};i.click()};
   if(c){
