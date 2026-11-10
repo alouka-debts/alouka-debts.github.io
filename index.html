@@ -58,6 +58,7 @@ nav .plus{background:var(--gold);color:#fff;width:56px;height:56px;border-radius
 .tx button{padding:4px 9px;background:#fff;color:var(--debt);border:1px solid var(--line);align-self:center}
 @media (prefers-reduced-motion:no-preference){.sheet>div{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.5}}}
 .num{display:inline-block;min-width:26px;padding:1px 7px;margin-left:8px;border-radius:999px;background:#eee3c3;color:#7a5a12;font-size:12px;font-weight:700;text-align:center}
+.what{font-size:13px;color:#7a5a12;margin-top:2px;font-weight:600}
 </style>
 </head>
 <body>
@@ -126,33 +127,40 @@ function dupAsk(name,exceptId){
 }
 const nextNo=()=>S.customers.reduce((m,c)=>Math.max(m,c.no||0),0)+1;
 function ensureNo(){let mx=0;S.customers.forEach(c=>{if(c.no>mx)mx=c.no});const miss=S.customers.filter(c=>!c.no).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);miss.forEach(c=>{c.no=++mx});return miss.length}
-function addCustomer(){sheet('زبون جديد',[{k:'n',l:'الاسم'},{k:'p',l:'رقم الموبايل (اختياري)',t:'tel',m:'tel'}],v=>{if(!v.n){alert('اكتب اسم الزبون');return false}if(!dupAsk(v.n))return false;S.customers.push({id:uid(),no:nextNo(),name:v.n,phone:v.p,tx:[]});save();render()})}
+function addCustomer(){sheet('زبون جديد',[{k:'n',l:'الاسم'},{k:'p',l:'رقم الموبايل (اختياري)',t:'tel',m:'tel'},{k:'a',l:'دين أول (اختياري) — المبلغ',m:'decimal'},{k:'u',l:'العملة',o:[['IQD','دينار'],['USD','دولار']]},{k:'d',l:'اسم الحاجة / ملاحظة (مثلاً: راوتر، كيبل، اشتراك شهر)'},{k:'due',l:'تاريخ الاستحقاق (اختياري)',t:'date'}],v=>{
+  if(!v.n){alert('اكتب اسم الزبون');return false}
+  let a=0;if(v.a){a=num(v.a);if(!(a>0)){alert('اكتب مبلغاً صحيحاً أكبر من صفر، أو اترك الخانة فاضية');return false}}
+  if(!dupAsk(v.n))return false;
+  const c={id:uid(),no:nextNo(),name:v.n,phone:v.p,tx:[]};
+  if(a>0)c.tx.push({id:uid(),type:'debt',cur:v.u,amt:a,note:v.d,due:v.due||'',ts:Date.now()});
+  S.customers.push(c);save();render();
+  if(a>0&&cfg.autoWa!=='0')waNote(c,'debt',a,v.u,v.d)})}
 function addTx(type,id){
   if(!S.customers.length){alert('أضف زبوناً أولاً');return addCustomer()}
   const f=[];if(!id)f.push({k:'c',l:'الزبون',o:S.customers.map(c=>[c.id,c.name])});
   f.push({k:'a',l:'المبلغ',m:'decimal'},{k:'u',l:'العملة',o:[['IQD','دينار'],['USD','دولار']]});
   if(type==='debt')f.push({k:'due',l:'تاريخ الاستحقاق (اختياري)',t:'date'});
-  f.push({k:'d',l:'ملاحظة (اختياري)'});
+  f.push({k:'d',l:type==='debt'?'اسم الحاجة / ملاحظة (مثلاً: راوتر، كيبل، اشتراك شهر)':'ملاحظة (اختياري)'});
   sheet(type==='debt'?'تسجيل دين':'تسجيل تسديد',f,v=>{
     const c=S.customers.find(x=>x.id===(id||v.c)),a=num(v.a);
     if(!(a>0)){alert('اكتب مبلغاً صحيحاً أكبر من صفر');return false}
     const l=c.tx[c.tx.length-1];
     if(l&&l.type===type&&l.amt===a&&l.cur===v.u&&Date.now()-l.ts<120000&&!confirm('نفس المبلغ سُجّل قبل قليل. تسجله مرة ثانية؟'))return false;
-    c.tx.push({id:uid(),type,cur:v.u,amt:a,note:v.d,due:v.due||'',ts:Date.now()});save();render();if(cfg.autoWa!=='0')waNote(c,type,a,v.u)},type==='debt'?'سجّل الدين':'سجّل التسديد');
+    c.tx.push({id:uid(),type,cur:v.u,amt:a,note:v.d,due:v.due||'',ts:Date.now()});save();render();if(cfg.autoWa!=='0')waNote(c,type,a,v.u,type==='debt'?v.d:'')},type==='debt'?'سجّل الدين':'سجّل التسديد');
 }
 const sigBlock=()=>'\n\n✦ ━━━━━━━━━━ ✦\n🌐 *'+cfg.sig+'* 🌐\n✦ ━━━━━━━━━━ ✦'+(cfg.phone?'\n📞 '+cfg.phone:'');
-function waNote(c,type,a,cur){
+function waNote(c,type,a,cur,note){
   let p=(c.phone||'').replace(/\D/g,'');if(!p)return;
   if(p.startsWith('0'))p='964'+p.slice(1);
   const r=balTxt(bal(c));
-  const m='السلام عليكم '+c.name+'،\n'+(type==='debt'?'تم تسجيل دين بمبلغ '+fmt(a)+cu(cur)+'.':'تم استلام مبلغ '+fmt(a)+cu(cur)+'، شكراً لك.')+'\n'+(r==='مسدَّد'?'تم سداد كامل المبلغ، الله يعطيك العافية.':'المتبقي عليك: '+r)+sigBlock();
+  const m='السلام عليكم '+c.name+'،\n'+(type==='debt'?'تم تسجيل دين بمبلغ '+fmt(a)+cu(cur)+(note?' ('+note+')':'')+'.':'تم استلام مبلغ '+fmt(a)+cu(cur)+'، شكراً لك.')+'\n'+(r==='مسدَّد'?'تم سداد كامل المبلغ، الله يعطيك العافية.':'المتبقي عليك: '+r)+sigBlock();
   window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
 function editTx(c,id){
   const t=c.tx.find(x=>x.id===id);if(!t)return;
   const f=[{k:'a',l:'المبلغ',m:'decimal',v:String(t.amt)},{k:'u',l:'العملة',o:[['IQD','دينار'],['USD','دولار']],v:t.cur}];
   if(t.type==='debt')f.push({k:'due',l:'تاريخ الاستحقاق (اختياري)',t:'date',v:t.due||''});
-  f.push({k:'d',l:'ملاحظة (اختياري)',v:t.note||''});
+  f.push({k:'d',l:t.type==='debt'?'اسم الحاجة / ملاحظة':'ملاحظة (اختياري)',v:t.note||''});
   sheet('تعديل '+(t.type==='debt'?'الدين':'التسديد'),f,v=>{
     const a=num(v.a);
     if(!(a>0)){alert('اكتب مبلغاً صحيحاً أكبر من صفر');return false}
@@ -175,7 +183,8 @@ function wa(c,full){
   m+=sigBlock();
   window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
-const custRow=(c,btn)=>{const b=bal(c),o=opens(c).filter(isLate),amt=balTxt(b);return '<div class="row" data-id="'+c.id+'" tabindex="0"><div><div class="nm"><span class="num">'+(c.no||'')+'</span>'+esc(c.name)+'</div><div class="ph">'+(o.length?'<span class="late">متأخر '+o.length+'</span>':esc(c.phone||''))+'</div></div><div style="display:flex;gap:8px;align-items:center"><div class="amt '+(b.IQD>0||b.USD>0?'owe':'ok')+'">'+amt+'</div>'+(btn&&(b.IQD>0||b.USD>0)?'<button class="wa" data-wa="'+c.id+'" aria-label="واتساب">واتساب</button>':'')+'</div></div>'};
+const whats=c=>{const n=[...new Set(opens(c).map(o=>o.note).filter(Boolean))];return n.length?n.slice(0,2).join('، ')+(n.length>2?' +'+(n.length-2):''):''};
+const custRow=(c,btn)=>{const b=bal(c),o=opens(c).filter(isLate),amt=balTxt(b);return '<div class="row" data-id="'+c.id+'" tabindex="0"><div><div class="nm"><span class="num">'+(c.no||'')+'</span>'+esc(c.name)+'</div><div class="ph">'+(o.length?'<span class="late">متأخر '+o.length+'</span>':esc(c.phone||''))+'</div>'+(whats(c)?'<div class="what">🛒 '+esc(whats(c))+'</div>':'')+'</div><div style="display:flex;gap:8px;align-items:center"><div class="amt '+(b.IQD>0||b.USD>0?'owe':'ok')+'">'+amt+'</div>'+(btn&&(b.IQD>0||b.USD>0)?'<button class="wa" data-wa="'+c.id+'" aria-label="واتساب">واتساب</button>':'')+'</div></div>'};
 function home(){
   const all=S.customers.flatMap(opens),late=all.filter(isLate),soon=all.filter(o=>o.due&&dueMs(o)>=T&&dueMs(o)<=T+7*D);
   const t={IQD:0,USD:0};S.customers.forEach(c=>{const b=bal(c);t.IQD+=Math.max(b.IQD,0);t.USD+=Math.max(b.USD,0)});
@@ -194,7 +203,7 @@ function customers(){
 }
 function dues(){
   const all=S.customers.flatMap(opens).sort((a,b)=>(a.due?dueMs(a):9e15)-(b.due?dueMs(b):9e15));
-  return '<h2>الديون المفتوحة</h2>'+(all.length?'<div class="list">'+all.map(o=>'<div class="row" data-id="'+o.cid+'" tabindex="0"><div><div class="nm"><span class="num">'+(o.cno||'')+'</span>'+esc(o.cn)+'</div>'+(dueTxt(o)||'<span class="ph">بدون تاريخ</span>')+'</div><div class="amt owe">'+fmt(o.rem)+cu(o.cur)+'</div></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة.</div>');
+  return '<h2>الديون المفتوحة</h2>'+(all.length?'<div class="list">'+all.map(o=>'<div class="row" data-id="'+o.cid+'" tabindex="0"><div><div class="nm"><span class="num">'+(o.cno||'')+'</span>'+esc(o.cn)+'</div>'+(o.note?'<div class="what">🛒 '+esc(o.note)+'</div>':'')+(dueTxt(o)||'<span class="ph">بدون تاريخ</span>')+'</div><div class="amt owe">'+fmt(o.rem)+cu(o.cur)+'</div></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة.</div>');
 }
 function more(){return (user?'<h2>الحساب</h2><div class="box"><div class="nm">'+esc(user.email||'')+'</div><div class="ph">بياناتك محفوظة بالسحابة تحت هذا الحساب</div><button class="ghost" id="lo" style="margin-top:10px">تسجيل الخروج</button></div>':'<h2>الحساب</h2><div class="box"><div class="ph">أنت تعمل بدون حساب. البيانات على هذا الجهاز فقط.</div><button class="gold" id="li" style="margin-top:10px;width:100%">الدخول بحساب جوجل</button></div>')+'<h2>بيانات المحل</h2><div class="box"><div class="nm">'+esc(cfg.shop||'أحمد علوكه')+'</div><div class="ph">توقيع الرسائل: '+esc(cfg.sig)+(cfg.phone?' · '+esc(cfg.phone):'')+'</div><button class="ghost" id="cs" style="margin-top:10px">تعديل بيانات المحل</button></div><h2>النسخ الاحتياطي</h2><div class="acts"><button class="ghost" id="ex">نسخة احتياطية</button><button class="ghost" id="im">استرجاع نسخة</button></div><div class="box ph">'+(user?'بياناتك على السحابة. هذي نسخة إضافية على جوالك.':'البيانات محفوظة على هذا الجهاز فقط. خذ نسخة احتياطية من وقت لوقت.')+'</div>'}
 function cust(c){
@@ -202,7 +211,7 @@ function cust(c){
   return '<button class="ghost" id="bk" style="margin-bottom:10px">رجوع</button><div class="box"><div class="nm"><span class="num">'+(c.no||'')+'</span>'+esc(c.name)+'</div><div class="ph">'+esc(c.phone||'بدون رقم')+'</div><strong class="'+(b.IQD>0||b.USD>0?'owe':'ok')+'" style="font-size:24px">'+balTxt(b)+'</strong></div>'
   +'<div class="acts"><button class="red" id="d">دين</button><button class="green" id="p">تسديد</button><button class="ghost" id="w">تذكير واتساب</button><button class="ghost" id="k">كشف حساب</button></div>'
   +'<div class="tabs"><button id="t1" class="'+(cvTab==='open'?'on':'')+'">المفتوح</button><button id="t2" class="'+(cvTab==='log'?'on':'')+'">السجل</button></div>'
-  +(cvTab==='open'?(op.length?'<div class="list">'+op.map(o=>'<div class="tx"><div><b class="owe">'+fmt(o.rem)+cu(o.cur)+'</b><small>من '+fmt(o.amt)+' · '+new Date(o.ts).toLocaleDateString('en-GB')+(o.note?' · '+esc(o.note):'')+'</small>'+dueTxt(o)+'</div><button data-e="'+o.id+'" style="color:var(--ink)" aria-label="تعديل">تعديل</button></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة على هذا الزبون.</div>')
+  +(cvTab==='open'?(op.length?'<div class="list">'+op.map(o=>'<div class="tx"><div><b class="owe">'+fmt(o.rem)+cu(o.cur)+'</b>'+(o.note?'<div class="what">🛒 '+esc(o.note)+'</div>':'')+'<small>من '+fmt(o.amt)+' · '+new Date(o.ts).toLocaleDateString('en-GB')+'</small>'+dueTxt(o)+'</div><button data-e="'+o.id+'" style="color:var(--ink)" aria-label="تعديل">تعديل</button></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة على هذا الزبون.</div>')
   :(c.tx.length?'<div class="list">'+c.tx.slice().reverse().map(t=>'<div class="tx"><div><b class="'+(t.type==='debt'?'owe':'ok')+'">'+(t.type==='debt'?'دين ':'تسديد ')+fmt(t.amt)+cu(t.cur)+'</b><small>'+new Date(t.ts).toLocaleDateString('en-GB')+(t.note?' · '+esc(t.note):'')+'</small></div><div style="display:flex;gap:6px;align-self:center"><button data-e="'+t.id+'" style="color:var(--ink)" aria-label="تعديل">تعديل</button><button data-x="'+t.id+'" aria-label="حذف الحركة">حذف</button></div></div>').join('')+'</div>':'<div class="box empty">ما كو حركات بعد.</div>'))
   +'<div class="acts" style="margin-top:16px"><button class="ghost" id="ed">تعديل الزبون</button><button class="ghost" id="rm">حذف الزبون</button></div>';
 }
