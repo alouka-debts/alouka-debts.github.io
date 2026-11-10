@@ -57,6 +57,7 @@ nav .plus{background:var(--gold);color:#fff;width:56px;height:56px;border-radius
 .tx small{color:var(--mute);display:block}
 .tx button{padding:4px 9px;background:#fff;color:var(--debt);border:1px solid var(--line);align-self:center}
 @media (prefers-reduced-motion:no-preference){.sheet>div{animation:up .18s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.5}}}
+.num{display:inline-block;min-width:26px;padding:1px 7px;margin-left:8px;border-radius:999px;background:#eee3c3;color:#7a5a12;font-size:12px;font-weight:700;text-align:center}
 </style>
 </head>
 <body>
@@ -95,7 +96,7 @@ const D=86400000,now=new Date(),T=new Date(now.getFullYear(),now.getMonth(),now.
 const dueMs=t=>t.due?new Date(t.due+'T00:00:00').getTime():0;
 const bal=c=>{const b={IQD:0,USD:0};c.tx.forEach(t=>b[t.cur]+=t.type==='debt'?t.amt:-t.amt);return b};
 const balTxt=b=>{const p=[];if(b.IQD>0)p.push(fmt(b.IQD)+' د.ع');if(b.USD>0)p.push(fmt(b.USD)+' $');return p.join(' + ')||'مسدَّد'};
-function opens(c){const out=[];['IQD','USD'].forEach(cur=>{let pay=0;c.tx.forEach(t=>{if(t.cur===cur&&t.type==='pay')pay+=t.amt});c.tx.filter(t=>t.cur===cur&&t.type==='debt').sort((a,b)=>a.ts-b.ts).forEach(t=>{const u=Math.min(pay,t.amt);pay-=u;if(t.amt-u>0)out.push({...t,rem:t.amt-u,cid:c.id,cn:c.name})})});return out}
+function opens(c){const out=[];['IQD','USD'].forEach(cur=>{let pay=0;c.tx.forEach(t=>{if(t.cur===cur&&t.type==='pay')pay+=t.amt});c.tx.filter(t=>t.cur===cur&&t.type==='debt').sort((a,b)=>a.ts-b.ts).forEach(t=>{const u=Math.min(pay,t.amt);pay-=u;if(t.amt-u>0)out.push({...t,rem:t.amt-u,cid:c.id,cn:c.name,cno:c.no})})});return out}
 const isLate=o=>o.due&&dueMs(o)<T;
 const dueTxt=o=>{if(!o.due)return '';const d=Math.round((dueMs(o)-T)/D);return d<0?'<span class="late">متأخر '+(-d)+' يوم</span>':d===0?'<span class="soon">يستحق اليوم</span>':d<=7?'<span class="soon">يستحق بعد '+d+' يوم</span>':'<span class="ph">يستحق '+o.due+'</span>'};
 function sheet(title,fields,ok,label){
@@ -106,7 +107,26 @@ function sheet(title,fields,ok,label){
 }
 const close=()=>$('#sheet').classList.remove('on');
 $('#sheet').onclick=e=>{if(e.target.id==='sheet')close()};
-function addCustomer(){sheet('زبون جديد',[{k:'n',l:'الاسم'},{k:'p',l:'رقم الموبايل (اختياري)',t:'tel',m:'tel'}],v=>{if(!v.n){alert('اكتب اسم الزبون');return false}S.customers.push({id:uid(),name:v.n,phone:v.p,tx:[]});save();render()})}
+const dig=s=>String(s??'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+const num=s=>parseFloat(dig(s).replace(/[,٬،\s]/g,''));
+const norm=s=>String(s||'').replace(/[\u064B-\u065F\u0670\u0640]/g,'').replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/\s+/g,' ').trim().toLowerCase();
+function lev(a,b){const m=a.length,n=b.length;if(Math.abs(m-n)>1)return 2;const d=[...Array(m+1)].map((_,i)=>[i]);for(let j=1;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n]}
+const toks=s=>s.split(' ').sort().join(' ');
+function similar(name,exceptId){
+  const x=norm(name),res=[];if(!x)return res;
+  S.customers.forEach(c=>{if(c.id===exceptId)return;const y=norm(c.name);if(!y)return;
+    if(x===y)res.push({c,t:'same'});
+    else if((x.length>=4&&y.length>=4&&lev(x,y)<=1)||toks(x)===toks(y)||(x.startsWith(y+' ')&&y.includes(' '))||(y.startsWith(x+' ')&&x.includes(' ')))res.push({c,t:'like'})});
+  return res;
+}
+function dupAsk(name,exceptId){
+  const r=similar(name,exceptId);if(!r.length)return true;
+  const list=r.slice(0,3).map(z=>'• '+(z.c.no?z.c.no+'. ':'')+z.c.name).join('\n');
+  return confirm((r.some(z=>z.t==='same')?'⚠️ يوجد زبون بنفس الاسم:\n':'ℹ️ يوجد اسم مشابه:\n')+list+'\n\nإذا هو نفس الشخص اضغط «إلغاء» وافتح حسابه.\nوإذا شخص ثاني اضغط «موافق» للمتابعة.');
+}
+const nextNo=()=>S.customers.reduce((m,c)=>Math.max(m,c.no||0),0)+1;
+function ensureNo(){let mx=0;S.customers.forEach(c=>{if(c.no>mx)mx=c.no});const miss=S.customers.filter(c=>!c.no).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);miss.forEach(c=>{c.no=++mx});return miss.length}
+function addCustomer(){sheet('زبون جديد',[{k:'n',l:'الاسم'},{k:'p',l:'رقم الموبايل (اختياري)',t:'tel',m:'tel'}],v=>{if(!v.n){alert('اكتب اسم الزبون');return false}if(!dupAsk(v.n))return false;S.customers.push({id:uid(),no:nextNo(),name:v.n,phone:v.p,tx:[]});save();render()})}
 function addTx(type,id){
   if(!S.customers.length){alert('أضف زبوناً أولاً');return addCustomer()}
   const f=[];if(!id)f.push({k:'c',l:'الزبون',o:S.customers.map(c=>[c.id,c.name])});
@@ -114,7 +134,7 @@ function addTx(type,id){
   if(type==='debt')f.push({k:'due',l:'تاريخ الاستحقاق (اختياري)',t:'date'});
   f.push({k:'d',l:'ملاحظة (اختياري)'});
   sheet(type==='debt'?'تسجيل دين':'تسجيل تسديد',f,v=>{
-    const c=S.customers.find(x=>x.id===(id||v.c)),a=parseFloat(v.a.replace(/,/g,''));
+    const c=S.customers.find(x=>x.id===(id||v.c)),a=num(v.a);
     if(!(a>0)){alert('اكتب مبلغاً صحيحاً أكبر من صفر');return false}
     const l=c.tx[c.tx.length-1];
     if(l&&l.type===type&&l.amt===a&&l.cur===v.u&&Date.now()-l.ts<120000&&!confirm('نفس المبلغ سُجّل قبل قليل. تسجله مرة ثانية؟'))return false;
@@ -128,6 +148,23 @@ function waNote(c,type,a,cur){
   const m='السلام عليكم '+c.name+'،\n'+(type==='debt'?'تم تسجيل دين بمبلغ '+fmt(a)+cu(cur)+'.':'تم استلام مبلغ '+fmt(a)+cu(cur)+'، شكراً لك.')+'\n'+(r==='مسدَّد'?'تم سداد كامل المبلغ، الله يعطيك العافية.':'المتبقي عليك: '+r)+sigBlock();
   window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
+function editTx(c,id){
+  const t=c.tx.find(x=>x.id===id);if(!t)return;
+  const f=[{k:'a',l:'المبلغ',m:'decimal',v:String(t.amt)},{k:'u',l:'العملة',o:[['IQD','دينار'],['USD','دولار']],v:t.cur}];
+  if(t.type==='debt')f.push({k:'due',l:'تاريخ الاستحقاق (اختياري)',t:'date',v:t.due||''});
+  f.push({k:'d',l:'ملاحظة (اختياري)',v:t.note||''});
+  sheet('تعديل '+(t.type==='debt'?'الدين':'التسديد'),f,v=>{
+    const a=num(v.a);
+    if(!(a>0)){alert('اكتب مبلغاً صحيحاً أكبر من صفر');return false}
+    const ch=[];
+    if(a!==t.amt||v.u!==t.cur)ch.push('المبلغ: '+fmt(t.amt)+cu(t.cur)+' ← '+fmt(a)+cu(v.u));
+    if(t.type==='debt'&&(v.due||'')!==(t.due||''))ch.push('الاستحقاق: '+(t.due||'بدون')+' ← '+(v.due||'بدون'));
+    if((v.d||'')!==(t.note||''))ch.push('الملاحظة: '+(t.note||'بدون')+' ← '+(v.d||'بدون'));
+    if(!ch.length)return;
+    if(!confirm('الخطوة 2 من 2: تأكيد التعديل؟\n\n'+ch.join('\n')))return false;
+    t.amt=a;t.cur=v.u;t.note=v.d;if(t.type==='debt')t.due=v.due||'';
+    save();render()},'التالي: مراجعة التعديل');
+}
 function wa(c,full){
   const b=bal(c);if(!full&&b.IQD<=0&&b.USD<=0){alert('الزبون ما عليه مبلغ');return}
   let p=(c.phone||'').replace(/\D/g,'');if(!p){alert('أضف رقم موبايل للزبون أولاً');return}
@@ -138,7 +175,7 @@ function wa(c,full){
   m+=sigBlock();
   window.open('https://wa.me/'+p+'?text='+encodeURIComponent(m),'_blank');
 }
-const custRow=(c,btn)=>{const b=bal(c),o=opens(c).filter(isLate),amt=balTxt(b);return '<div class="row" data-id="'+c.id+'" tabindex="0"><div><div class="nm">'+esc(c.name)+'</div><div class="ph">'+(o.length?'<span class="late">متأخر '+o.length+'</span>':esc(c.phone||''))+'</div></div><div style="display:flex;gap:8px;align-items:center"><div class="amt '+(b.IQD>0||b.USD>0?'owe':'ok')+'">'+amt+'</div>'+(btn&&(b.IQD>0||b.USD>0)?'<button class="wa" data-wa="'+c.id+'" aria-label="واتساب">واتساب</button>':'')+'</div></div>'};
+const custRow=(c,btn)=>{const b=bal(c),o=opens(c).filter(isLate),amt=balTxt(b);return '<div class="row" data-id="'+c.id+'" tabindex="0"><div><div class="nm"><span class="num">'+(c.no||'')+'</span>'+esc(c.name)+'</div><div class="ph">'+(o.length?'<span class="late">متأخر '+o.length+'</span>':esc(c.phone||''))+'</div></div><div style="display:flex;gap:8px;align-items:center"><div class="amt '+(b.IQD>0||b.USD>0?'owe':'ok')+'">'+amt+'</div>'+(btn&&(b.IQD>0||b.USD>0)?'<button class="wa" data-wa="'+c.id+'" aria-label="واتساب">واتساب</button>':'')+'</div></div>'};
 function home(){
   const all=S.customers.flatMap(opens),late=all.filter(isLate),soon=all.filter(o=>o.due&&dueMs(o)>=T&&dueMs(o)<=T+7*D);
   const t={IQD:0,USD:0};S.customers.forEach(c=>{const b=bal(c);t.IQD+=Math.max(b.IQD,0);t.USD+=Math.max(b.USD,0)});
@@ -152,25 +189,26 @@ function home(){
   +'<h2>آخر 7 أيام بالدينار</h2><div class="box"><div class="chart">'+ch.map(x=>'<div><div class="bars"><i style="height:'+x.a/mx*100+'%;background:var(--debt)"></i><i style="height:'+x.p/mx*100+'%;background:var(--pay)"></i></div>'+dn[new Date(x.d).getDay()]+'</div>').join('')+'</div><div class="ph" style="margin-top:6px"><span class="owe">■</span> ديون جديدة &nbsp; <span class="ok">■</span> تسديدات</div></div>';
 }
 function customers(){
-  const L=S.customers.filter(c=>c.name.includes(q)).sort((x,y)=>bal(y).IQD-bal(x).IQD);
+  const L=S.customers.filter(c=>(c.name.includes(q)||String(c.no)===dig(q).trim())).sort((x,y)=>bal(y).IQD-bal(x).IQD);
   return '<input id="s" placeholder="ابحث عن زبون" value="'+esc(q)+'" style="margin-bottom:12px">'+(L.length?'<div class="list">'+L.map(c=>custRow(c)).join('')+'</div>':'<div class="box empty">'+(S.customers.length?'ما كو زبون بهذا الاسم.':'ما كو زبائن بعد. اضغط + وأضف زبون.')+'</div>')+'<button class="gold" id="nc" style="width:100%;margin-top:12px">زبون جديد</button>';
 }
 function dues(){
   const all=S.customers.flatMap(opens).sort((a,b)=>(a.due?dueMs(a):9e15)-(b.due?dueMs(b):9e15));
-  return '<h2>الديون المفتوحة</h2>'+(all.length?'<div class="list">'+all.map(o=>'<div class="row" data-id="'+o.cid+'" tabindex="0"><div><div class="nm">'+esc(o.cn)+'</div>'+(dueTxt(o)||'<span class="ph">بدون تاريخ</span>')+'</div><div class="amt owe">'+fmt(o.rem)+cu(o.cur)+'</div></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة.</div>');
+  return '<h2>الديون المفتوحة</h2>'+(all.length?'<div class="list">'+all.map(o=>'<div class="row" data-id="'+o.cid+'" tabindex="0"><div><div class="nm"><span class="num">'+(o.cno||'')+'</span>'+esc(o.cn)+'</div>'+(dueTxt(o)||'<span class="ph">بدون تاريخ</span>')+'</div><div class="amt owe">'+fmt(o.rem)+cu(o.cur)+'</div></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة.</div>');
 }
 function more(){return (user?'<h2>الحساب</h2><div class="box"><div class="nm">'+esc(user.email||'')+'</div><div class="ph">بياناتك محفوظة بالسحابة تحت هذا الحساب</div><button class="ghost" id="lo" style="margin-top:10px">تسجيل الخروج</button></div>':'<h2>الحساب</h2><div class="box"><div class="ph">أنت تعمل بدون حساب. البيانات على هذا الجهاز فقط.</div><button class="gold" id="li" style="margin-top:10px;width:100%">الدخول بحساب جوجل</button></div>')+'<h2>بيانات المحل</h2><div class="box"><div class="nm">'+esc(cfg.shop||'أحمد علوكه')+'</div><div class="ph">توقيع الرسائل: '+esc(cfg.sig)+(cfg.phone?' · '+esc(cfg.phone):'')+'</div><button class="ghost" id="cs" style="margin-top:10px">تعديل بيانات المحل</button></div><h2>النسخ الاحتياطي</h2><div class="acts"><button class="ghost" id="ex">نسخة احتياطية</button><button class="ghost" id="im">استرجاع نسخة</button></div><div class="box ph">'+(user?'بياناتك على السحابة. هذي نسخة إضافية على جوالك.':'البيانات محفوظة على هذا الجهاز فقط. خذ نسخة احتياطية من وقت لوقت.')+'</div>'}
 function cust(c){
   const b=bal(c),op=opens(c);
-  return '<button class="ghost" id="bk" style="margin-bottom:10px">رجوع</button><div class="box"><div class="nm">'+esc(c.name)+'</div><div class="ph">'+esc(c.phone||'بدون رقم')+'</div><strong class="'+(b.IQD>0||b.USD>0?'owe':'ok')+'" style="font-size:24px">'+balTxt(b)+'</strong></div>'
+  return '<button class="ghost" id="bk" style="margin-bottom:10px">رجوع</button><div class="box"><div class="nm"><span class="num">'+(c.no||'')+'</span>'+esc(c.name)+'</div><div class="ph">'+esc(c.phone||'بدون رقم')+'</div><strong class="'+(b.IQD>0||b.USD>0?'owe':'ok')+'" style="font-size:24px">'+balTxt(b)+'</strong></div>'
   +'<div class="acts"><button class="red" id="d">دين</button><button class="green" id="p">تسديد</button><button class="ghost" id="w">تذكير واتساب</button><button class="ghost" id="k">كشف حساب</button></div>'
   +'<div class="tabs"><button id="t1" class="'+(cvTab==='open'?'on':'')+'">المفتوح</button><button id="t2" class="'+(cvTab==='log'?'on':'')+'">السجل</button></div>'
-  +(cvTab==='open'?(op.length?'<div class="list">'+op.map(o=>'<div class="tx"><div><b class="owe">'+fmt(o.rem)+cu(o.cur)+'</b><small>من '+fmt(o.amt)+' · '+new Date(o.ts).toLocaleDateString('en-GB')+(o.note?' · '+esc(o.note):'')+'</small>'+dueTxt(o)+'</div></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة على هذا الزبون.</div>')
-  :(c.tx.length?'<div class="list">'+c.tx.slice().reverse().map(t=>'<div class="tx"><div><b class="'+(t.type==='debt'?'owe':'ok')+'">'+(t.type==='debt'?'دين ':'تسديد ')+fmt(t.amt)+cu(t.cur)+'</b><small>'+new Date(t.ts).toLocaleDateString('en-GB')+(t.note?' · '+esc(t.note):'')+'</small></div><button data-x="'+t.id+'" aria-label="حذف الحركة">حذف</button></div>').join('')+'</div>':'<div class="box empty">ما كو حركات بعد.</div>'))
+  +(cvTab==='open'?(op.length?'<div class="list">'+op.map(o=>'<div class="tx"><div><b class="owe">'+fmt(o.rem)+cu(o.cur)+'</b><small>من '+fmt(o.amt)+' · '+new Date(o.ts).toLocaleDateString('en-GB')+(o.note?' · '+esc(o.note):'')+'</small>'+dueTxt(o)+'</div><button data-e="'+o.id+'" style="color:var(--ink)" aria-label="تعديل">تعديل</button></div>').join('')+'</div>':'<div class="box empty">ما كو ديون مفتوحة على هذا الزبون.</div>')
+  :(c.tx.length?'<div class="list">'+c.tx.slice().reverse().map(t=>'<div class="tx"><div><b class="'+(t.type==='debt'?'owe':'ok')+'">'+(t.type==='debt'?'دين ':'تسديد ')+fmt(t.amt)+cu(t.cur)+'</b><small>'+new Date(t.ts).toLocaleDateString('en-GB')+(t.note?' · '+esc(t.note):'')+'</small></div><div style="display:flex;gap:6px;align-self:center"><button data-e="'+t.id+'" style="color:var(--ink)" aria-label="تعديل">تعديل</button><button data-x="'+t.id+'" aria-label="حذف الحركة">حذف</button></div></div>').join('')+'</div>':'<div class="box empty">ما كو حركات بعد.</div>'))
   +'<div class="acts" style="margin-top:16px"><button class="ghost" id="ed">تعديل الزبون</button><button class="ghost" id="rm">حذف الزبون</button></div>';
 }
 const IC={home:'M3 11l9-8 9 8v10h-6v-6H9v6H3z',users:'M16 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6',dues:'M4 5h16v16H4zM4 10h16M9 3v4M15 3v4',more:'M5 12h.01M12 12h.01M19 12h.01'};
 function render(){
+  if(ensureNo())save();
   const hb=document.querySelector('header b');if(hb)hb.textContent=cfg.shop||'أحمد علوكه';
   const a=$('#app'),c=view&&S.customers.find(x=>x.id===view);if(view&&!c)view=null;
   a.innerHTML=c?cust(c):tab==='home'?home():tab==='cust'?customers():tab==='dues'?dues():more();
@@ -191,8 +229,9 @@ function render(){
     $('#bk').onclick=()=>{view=null;render()};$('#d').onclick=()=>addTx('debt',c.id);$('#p').onclick=()=>addTx('pay',c.id);$('#w').onclick=()=>wa(c);$('#k').onclick=()=>wa(c,1);
     $('#t1').onclick=()=>{cvTab='open';render()};$('#t2').onclick=()=>{cvTab='log';render()};
     a.querySelectorAll('[data-x]').forEach(x=>x.onclick=()=>{if(confirm('تحذف هذه الحركة؟')){c.tx=c.tx.filter(t=>t.id!==x.dataset.x);save();render()}});
-    $('#ed').onclick=()=>sheet('تعديل الزبون',[{k:'n',l:'الاسم',v:c.name},{k:'p',l:'رقم الموبايل',t:'tel',m:'tel',v:c.phone}],v=>{if(!v.n)return false;c.name=v.n;c.phone=v.p;save();render()});
-    $('#rm').onclick=()=>{if(confirm('تحذف الزبون وكل حركاته؟')){S.customers=S.customers.filter(x=>x.id!==c.id);save();view=null;render()}};
+    a.querySelectorAll('[data-e]').forEach(x=>x.onclick=()=>editTx(c,x.dataset.e));
+    $('#ed').onclick=()=>sheet('تعديل الزبون',[{k:'n',l:'الاسم',v:c.name},{k:'p',l:'رقم الموبايل',t:'tel',m:'tel',v:c.phone}],v=>{if(!v.n)return false;if(v.n!==c.name&&!dupAsk(v.n,c.id))return false;const ch=[];if(v.n!==c.name)ch.push('الاسم: '+c.name+' ← '+v.n);if(v.p!==(c.phone||''))ch.push('الرقم: '+(c.phone||'بدون')+' ← '+(v.p||'بدون'));if(!ch.length)return;if(!confirm('الخطوة 2 من 2: تأكيد التعديل؟\n\n'+ch.join('\n')))return false;c.name=v.n;c.phone=v.p;save();render()},'التالي: مراجعة التعديل');
+    $('#rm').onclick=()=>{if(!confirm('الخطوة 1 من 2:\nتحذف الزبون «'+c.name+'» وكل حركاته؟'))return;if(!confirm('الخطوة 2 من 2 (تأكيد أخير):\nسيُحذف «'+c.name+'» نهائياً مع كل ديونه وتسديداته. المتبقي عليه: '+balTxt(bal(c))+'.\nلا يمكن التراجع. تحذفه؟'))return;S.customers=S.customers.filter(x=>x.id!==c.id);save();view=null;render()};
   }
 }
 function showLogin(){
